@@ -13,31 +13,42 @@ const App = {
     // Initialize modules
     Chat.init();
     Monitor.init();
-    Monitor.addLog('Crypto Guardian initialized — READ-ONLY mode');
+    Monitor.addLog('Crypto Guardian initialized — AUTONOMOUS mode');
 
     // Wire up scan button
-    document.getElementById('scanBtn').addEventListener('click', () => this.scan());
+    const scanBtn = document.getElementById('scanBtn');
+    if (scanBtn) scanBtn.addEventListener('click', () => this.scan());
 
     // Wire up wallet input (Enter key)
-    document.getElementById('walletInput').addEventListener('keydown', (e) => {
+    const walletInput = document.getElementById('walletInput');
+    if (walletInput) walletInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.scan();
     });
 
-    // Wire up chain selector
+    // Wire up chain selector (dropdown)
+    const chainSelect = document.getElementById('chainSelect');
+    if (chainSelect) chainSelect.addEventListener('change', (e) => {
+      this.currentChain = e.target.value;
+    });
+
+    // Wire up chain buttons (if any)
     document.querySelectorAll('.chain-btn').forEach(btn => {
       btn.addEventListener('click', () => this.selectChain(btn));
     });
 
     // Wire up guardian toggle
-    document.getElementById('guardianToggle').addEventListener('click', () => this.toggleGuardian());
+    const guardianToggle = document.getElementById('guardianToggle');
+    if (guardianToggle) guardianToggle.addEventListener('click', () => this.toggleGuardian());
 
     // Wire up phishing checker
-    document.getElementById('phishingCheckBtn').addEventListener('click', () => this.checkPhishing());
-    document.getElementById('phishingInput').addEventListener('keydown', (e) => {
+    const phishingCheckBtn = document.getElementById('phishingCheckBtn');
+    if (phishingCheckBtn) phishingCheckBtn.addEventListener('click', () => this.checkPhishing());
+    const phishingInput = document.getElementById('phishingInput');
+    if (phishingInput) phishingInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.checkPhishing();
     });
 
-    console.log('🛡️ Crypto Guardian ready');
+    console.log('🛡️ Crypto Guardian ready — 21 tools, autonomous mode');
   },
 
   // ── Chain selection ────────────────────────────────────────
@@ -63,8 +74,8 @@ const App = {
     }
 
     this.currentAddress = address;
+    this.currentChain = document.getElementById('chainSelect')?.value || this.currentChain;
     this.showLoading('Scanning blockchain…');
-    this.showDashboard();
     Risk.reset();
     Monitor.addLog(`Scanning ${Utils.shortenAddress(address)} on ${this.currentChain === 'all' ? 'all chains' : this.currentChain}`);
 
@@ -102,17 +113,33 @@ const App = {
       Scanner.renderTransactions(allTransactions.slice(0, 30), document.getElementById('txList'));
       Scanner.renderRevokeList(allApprovals, document.getElementById('revokeList'));
 
-      // Update counts and portfolio value
-      document.getElementById('approvalCount').textContent = allApprovals.length;
-      document.getElementById('txCount').textContent = allTransactions.length;
-      
+      // Update counts and portfolio value (null-safe)
+      const approvalCountEl = document.getElementById('approvalCount');
+      if (approvalCountEl) approvalCountEl.textContent = allApprovals.length;
+      const txCountEl = document.getElementById('txCount');
+      if (txCountEl) txCountEl.textContent = allTransactions.length;
+      const statTxsEl = document.getElementById('statTxs');
+      if (statTxsEl) statTxsEl.textContent = allTransactions.length;
+      const statApprovalsEl = document.getElementById('statApprovals');
+      if (statApprovalsEl) statApprovalsEl.textContent = allApprovals.length;
+
+      // Unlimited & stale counts
+      const unlim = allApprovals.filter(a => a.isUnlimited).length;
+      const stale = allApprovals.filter(a => a.ageInDays > 180).length;
+      const statUnlimitedEl = document.getElementById('statUnlimited');
+      if (statUnlimitedEl) statUnlimitedEl.textContent = unlim;
+      const statStaleEl = document.getElementById('statStale');
+      if (statStaleEl) statStaleEl.textContent = stale;
+
       let totalPortfolioValue = 0;
       for (const b of allBalances) {
         totalPortfolioValue += (b.valueUsd || 0);
       }
       const portfolioEl = document.getElementById('statPortfolio');
       if (portfolioEl) {
-          portfolioEl.textContent = totalPortfolioValue > 0 ? `$${totalPortfolioValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '$0.00';
+        portfolioEl.textContent = totalPortfolioValue > 0
+          ? `$${totalPortfolioValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`
+          : '$0.00';
       }
 
       // Fetch risk score
@@ -124,8 +151,6 @@ const App = {
         Monitor.addLog(`Risk score: ${riskData.score}/100 (${riskData.level})`);
       } catch (e) {
         // Calculate local risk from approval data
-        const unlim = allApprovals.filter(a => a.isUnlimited).length;
-        const stale = allApprovals.filter(a => a.ageInDays > 180).length;
         const score = Math.min(unlim * 15 + stale * 5, 100);
         const level = score < 20 ? 'LOW' : score < 50 ? 'MEDIUM' : score < 75 ? 'HIGH' : 'CRITICAL';
         Risk.updateGauge(score, level);
@@ -142,7 +167,6 @@ const App = {
     } catch (err) {
       console.error('[Scan] Error:', err);
       Monitor.addLog(`Scan error: ${err.message}`);
-      // Error boundary: show user-visible error notification
       const container = document.getElementById('approvalsTable');
       if (container) {
         container.innerHTML = `<div style="color:var(--accent-red);padding:1rem;text-align:center;">
@@ -194,36 +218,34 @@ const App = {
 
   // ── Guardian toggle ────────────────────────────────────────
   async toggleGuardian() {
-    const toggle = document.getElementById('toggleSwitch');
+    const toggle = document.getElementById('guardianToggle');
 
     if (!this.currentAddress) {
       Chat.addMessage('assistant', '⚠️ Please scan a wallet first before enabling Guardian Mode.');
-      Chat.toggle();
       return;
     }
 
     const chains = this.currentChain === 'all' ? this.allChains : [this.currentChain];
     const isNowActive = await Monitor.toggle(this.currentAddress, chains);
-    toggle.classList.toggle('active', isNowActive);
-  },
-
-  // ── Dashboard visibility ───────────────────────────────────
-  showDashboard() {
-    document.getElementById('dashboard').style.display = 'grid';
+    if (toggle) toggle.classList.toggle('active', isNowActive);
   },
 
   // ── Loading states ─────────────────────────────────────────
   showLoading(text) {
-    document.getElementById('loadingOverlay').style.display = 'flex';
-    document.getElementById('loadingText').textContent = text || 'Loading…';
+    const overlay = document.getElementById('loadingOverlay');
+    const textEl = document.getElementById('loadingText');
+    if (overlay) overlay.style.display = 'flex';
+    if (textEl) textEl.textContent = text || 'Loading…';
   },
 
   updateLoadingText(text) {
-    document.getElementById('loadingText').textContent = text;
+    const textEl = document.getElementById('loadingText');
+    if (textEl) textEl.textContent = text;
   },
 
   hideLoading() {
-    document.getElementById('loadingOverlay').style.display = 'none';
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.style.display = 'none';
   },
 };
 

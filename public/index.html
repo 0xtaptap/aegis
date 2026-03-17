@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Crypto Guardian — AI-powered on-chain security agent. 14 tools, 7 chains, real-time protection.">
+  <meta name="description" content="Crypto Guardian — AI-powered on-chain security agent. 21 tools, 7 chains, autonomous protection.">
   <title>Crypto Guardian — AI Security Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,7 +48,7 @@
     <div class="sidebar-footer">
       <div class="sidebar-status">
         <div class="status-dot-live"></div>
-        <span>14 Tools Active</span>
+        <span>21 Tools Active</span>
       </div>
       <div class="sidebar-chains">7 Chains</div>
     </div>
@@ -122,6 +122,8 @@
             <div class="rstat"><span class="rstat-val" id="statUnlimited">—</span><span class="rstat-lbl">Unlimited</span></div>
             <div class="rstat"><span class="rstat-val" id="statStale">—</span><span class="rstat-lbl">Stale</span></div>
             <div class="rstat"><span class="rstat-val" id="statTxs">—</span><span class="rstat-lbl">Transactions</span></div>
+            <div class="rstat"><span class="rstat-val" id="txCount">—</span><span class="rstat-lbl">TX Count</span></div>
+            <div class="rstat"><span class="rstat-val" id="statPortfolio">$0.00</span><span class="rstat-lbl">Portfolio</span></div>
           </div>
         </div>
 
@@ -414,6 +416,11 @@
       </div>
     </section>
 
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display:none">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="loadingText">Loading…</div>
+    </div>
   </main>
 
   <!-- ═══ AI CHAT PANEL (bottom dock) ═══ -->
@@ -422,7 +429,7 @@
       <div class="chat-dock-left">
         <span class="chat-dock-icon">🛡️</span>
         <strong>Ask Guardian</strong>
-        <span class="chat-dock-sub">14 tools • 7 chains • AI-powered</span>
+        <span class="chat-dock-sub">21 tools • 7 chains • Autonomous AI</span>
       </div>
       <div class="chat-dock-right">
         <span class="chat-dock-expand" id="chatExpandBtn">▲</span>
@@ -433,7 +440,7 @@
         <div class="chat-msg assistant">
           <div class="msg-avatar">🛡️</div>
           <div class="msg-content">
-            <p>Hey! I'm your Crypto Guardian — <strong>14 tools, 7 chains, real-time protection.</strong></p>
+            <p>Hey! I'm your Crypto Guardian — <strong>21 tools, 7 chains, autonomous protection.</strong></p>
             <p>Try: <em>"check token 0x..."</em>, <em>"compare gas"</em>, <em>"bridge 1 ETH to Base"</em>, <em>"what is a rug pull?"</em></p>
           </div>
         </div>

@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Chat — AI chat interface connecting to the LangChain agent
+// Uses bottom-dock layout from index.html
 // ═══════════════════════════════════════════════════════════════
 
 const Chat = {
@@ -8,16 +9,11 @@ const Chat = {
 
   // ── Initialize chat UI ─────────────────────────────────────
   init() {
-    const toggle = document.getElementById('chatToggle');
-    const minimize = document.getElementById('chatMinimize');
     const sendBtn = document.getElementById('chatSend');
     const input = document.getElementById('chatInput');
 
-    toggle.addEventListener('click', () => this.toggle());
-    minimize.addEventListener('click', () => this.toggle());
-
-    sendBtn.addEventListener('click', () => this.send());
-    input.addEventListener('keydown', (e) => {
+    if (sendBtn) sendBtn.addEventListener('click', () => this.send());
+    if (input) input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.send();
@@ -25,22 +21,10 @@ const Chat = {
     });
   },
 
-  // ── Toggle chat panel ──────────────────────────────────────
-  toggle() {
-    const panel = document.getElementById('chatPanel');
-    this.isOpen = !this.isOpen;
-    panel.classList.toggle('open', this.isOpen);
-
-    if (this.isOpen) {
-      document.getElementById('chatInput').focus();
-      const notif = document.getElementById('chatNotification');
-      if (notif) notif.style.display = 'none';
-    }
-  },
-
   // ── Send message to agent ──────────────────────────────────
   async send() {
     const input = document.getElementById('chatInput');
+    if (!input) return;
     const message = input.value.trim();
     if (!message) return;
 
@@ -55,7 +39,8 @@ const Chat = {
     try {
       // Get current wallet context
       const walletAddress = document.getElementById('walletInput')?.value?.trim() || null;
-      const activeChain = document.querySelector('.chain-btn.active')?.dataset?.chain || 'ethereum';
+      const chainSelect = document.getElementById('chainSelect');
+      const activeChain = chainSelect?.value || 'ethereum';
 
       const data = await Utils.apiFetch('/api/chat', {
         method: 'POST',
@@ -71,7 +56,7 @@ const Chat = {
       this.removeTyping(typingId);
 
       // Add agent response
-      this.addMessage('assistant', data.response);
+      this.addMessage('assistant', data.response || data.reply || 'No response');
 
       // Log tools used
       if (data.toolsUsed && data.toolsUsed.length > 0) {
@@ -83,13 +68,14 @@ const Chat = {
 
     } catch (err) {
       this.removeTyping(typingId);
-      this.addMessage('assistant', `⚠️ Sorry, I hit an error: ${err.message}\n\nTip: Make sure your xAI API key is set in the .env file.`);
+      this.addMessage('assistant', `⚠️ Sorry, I hit an error: ${err.message}\n\nTip: Make sure your API key is set in the .env file.`);
     }
   },
 
   // ── Add message to chat ────────────────────────────────────
   addMessage(role, content) {
     const container = document.getElementById('chatMessages');
+    if (!container) return;
     const avatar = role === 'assistant' ? '🛡️' : '👤';
 
     // Process markdown-light formatting
@@ -106,20 +92,12 @@ const Chat = {
 
     container.appendChild(msg);
     container.scrollTop = container.scrollHeight;
-
-    // Notify if chat is closed
-    if (!this.isOpen && role === 'assistant') {
-      const notif = document.getElementById('chatNotification');
-      if (notif) {
-        notif.style.display = 'flex';
-        notif.textContent = '!';
-      }
-    }
   },
 
   // ── Typing indicator ──────────────────────────────────────
   showTyping() {
     const container = document.getElementById('chatMessages');
+    if (!container) return null;
     const id = 'typing_' + Date.now();
 
     const msg = Utils.el('div', { className: 'chat-msg assistant', id }, [
@@ -137,6 +115,7 @@ const Chat = {
   },
 
   removeTyping(id) {
+    if (!id) return;
     const el = document.getElementById(id);
     if (el) el.remove();
   },
