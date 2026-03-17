@@ -49,6 +49,7 @@ class GoalEngine:
             db_path = os.path.join(os.path.dirname(__file__), "..", "data", "goals.db")
         self._db_path = db_path
         self._init_db()
+        self._auto_seed()
 
     def _init_db(self):
         os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
@@ -71,6 +72,26 @@ class GoalEngine:
         conn.commit()
         conn.close()
         print("[GoalEngine] Initialized (%s)" % self._db_path)
+
+    def _auto_seed(self):
+        """Seed default goals on first boot so the agent always has a mission."""
+        stats = self.get_stats()
+        if stats["total"] > 0:
+            return  # Already has goals
+        # Seed 3 default goals
+        self.add_goal("hunt_scams", "*",
+                      chains=["ethereum", "polygon", "bsc", "arbitrum", "base"],
+                      priority=8,
+                      description="Proactively scan for new scam contracts and patterns across all chains")
+        self.add_goal("track_threats", "*",
+                      chains=["ethereum", "polygon", "bsc"],
+                      priority=7,
+                      description="Monitor threat intelligence feeds and community scam reports")
+        self.add_goal("monitor_approvals", "*",
+                      chains=["ethereum", "polygon", "bsc", "arbitrum", "base"],
+                      priority=6,
+                      description="Watch all connected wallets for risky approvals")
+        print("[GoalEngine] Auto-seeded 3 default goals")
 
     def add_goal(self, goal_type: str, target: str, chains: list[str] = None,
                  priority: int = 5, description: str = "") -> Goal:

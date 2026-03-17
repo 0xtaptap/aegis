@@ -68,51 +68,81 @@ class PerceptionLoop:
             pass  # Drop event if queue is full
 
     async def _loop(self):
-        """Main autonomous loop."""
+        """Main autonomous loop — ALWAYS runs, never skips."""
         # Wait a bit on startup for services to initialize
-        await asyncio.sleep(10)
+        await asyncio.sleep(15)
+        print("[Perception] First cycle starting...")
 
         while self._running:
             try:
-                # Check for event-driven triggers (0 timeout = non-blocking)
+                # Check for event-driven triggers (non-blocking)
                 event = None
                 try:
                     event = self._event_queue.get_nowait()
+                    print("[Perception] Event trigger received: %s" % event.get("type", "unknown"))
                 except asyncio.QueueEmpty:
                     pass
 
                 # Get active goals
                 goals = self._goals.get_active_goals()
 
-                if not goals and not event:
-                    await asyncio.sleep(self._interval)
-                    continue
-
                 self._cycle_count += 1
                 cycle_id = "cycle_%d_%d" % (self._cycle_count, int(time.time()))
+                print("[Perception] ── Cycle #%d starting (%d goals, event=%s) ──" %
+                      (self._cycle_count, len(goals), bool(event)))
 
                 # ── OBSERVE ──
                 observations = await self._observe(goals, event)
 
-                if not observations and not event:
-                    # Nothing interesting happened — skip reasoning to save API costs
-                    await asyncio.sleep(self._interval)
-                    continue
+                # Also observe watchlist wallets from monitor (for wildcard goals)
+                if self._monitor:
+                    try:
+                        watchlist = self._monitor.get_watchlist()
+                        if watchlist:
+                            for entry in watchlist[:5]:
+                                addr = entry.get("address", "")
+                                chains = entry.get("chains", ["ethereum"])
+                                obs = await self._observe_wallet(addr, chains)
+                                observations.extend(obs)
+                        # Also pull recent alerts from monitor
+                        recent_alerts = self._monitor.get_alerts(limit=5)
+                        if recent_alerts:
+                            observations.append({
+                                "source": "monitor_alerts", "type": "recent_alerts",
+                                "data": {"count": len(recent_alerts),
+                                         "alerts": [a.get("alertType", "") for a in recent_alerts[:5]]},
+                                "priority": 6,
+                            })
+                    except Exception as e:
+                        print("[Perception] Monitor check error: %s" % e)
+
+                print("[Perception] Observed %d items" % len(observations))
 
                 # ── THINK + ACT ──
-                if self._agent_fn:
-                    result = await self._think_and_act(goals, observations, event, cycle_id)
-                    self._last_cycle_result = result.get("response", "")[:200]
+                # Only call LLM if there are meaningful observations (saves API cost)
+                if observations and self._agent_fn:
+                    important = [o for o in observations if o.get("priority", 0) >= 5]
+                    if important or event:
+                        print("[Perception] Thinking... (%d important observations)" % len(important))
+                        result = await self._think_and_act(goals, observations, event, cycle_id)
+                        self._last_cycle_result = result.get("response", "")[:200]
+                        print("[Perception] Action taken: %s" % self._last_cycle_result[:100])
+                    else:
+                        print("[Perception] Low-priority observations only — skipping LLM call")
+                        self._last_cycle_result = "Cycle #%d: %d low-priority observations, no action needed" % (
+                            self._cycle_count, len(observations))
+                else:
+                    self._last_cycle_result = "Cycle #%d: no observations" % self._cycle_count
 
                 # ── EVALUATE ──
                 await self._evaluate(goals, observations, cycle_id)
 
-                # Log cycle
-                print("[Perception] Cycle #%d complete (%d observations, %d goals)" %
-                      (self._cycle_count, len(observations), len(goals)))
+                print("[Perception] ── Cycle #%d complete ──" % self._cycle_count)
 
             except Exception as e:
                 print("[Perception] Loop error: %s" % e)
+                import traceback
+                traceback.print_exc()
 
             # Sleep unless there are pending events
             if self._event_queue.empty():
