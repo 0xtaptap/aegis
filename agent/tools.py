@@ -434,7 +434,7 @@ def explain_term(term: str) -> str:
     return "I dont have a specific definition for '%s'. Try asking me to explain it in the chat and I will do my best." % term
 
 # ═══════════════════════════════════════════════════════════════
-# ADDED FOR FINAL VERSION — 5 New Tools (Tools 15-19)
+# Tools 15+ — Tax, ACP, Scam DB, GOAT Chain
 # ═══════════════════════════════════════════════════════════════
 
 # Tool 15: tax_simulate — Full DeFi tax simulation
@@ -449,101 +449,10 @@ async def tax_simulate(address: str, country: str = "US", annual_income: float =
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
-# Tool 16: yield_optimizer — Safe APY scanner
-@tool
-async def yield_optimizer(chain: str = "ethereum", risk_level: str = "low") -> str:
-    """Scan DeFi protocols for safe yield opportunities. Returns APY estimates ranked by risk level (low/medium/high). Low = stablecoins on audited protocols. Medium = blue-chip LP. High = new farms."""
-    try:
-        # Production yield data from known safe protocols
-        protocols = {
-            "ethereum": [
-                {"protocol": "Aave V3", "asset": "USDC", "apy": 4.2, "risk": "low", "tvl": "$8.5B", "audited": True, "insurance": True},
-                {"protocol": "Aave V3", "asset": "ETH", "apy": 2.1, "risk": "low", "tvl": "$8.5B", "audited": True, "insurance": True},
-                {"protocol": "Lido", "asset": "stETH", "apy": 3.4, "risk": "low", "tvl": "$15B", "audited": True, "insurance": False},
-                {"protocol": "Compound V3", "asset": "USDC", "apy": 3.8, "risk": "low", "tvl": "$2.1B", "audited": True, "insurance": True},
-                {"protocol": "Uniswap V3", "asset": "ETH/USDC", "apy": 12.5, "risk": "medium", "tvl": "$3.2B", "audited": True, "insurance": False},
-                {"protocol": "Curve", "asset": "3pool", "apy": 5.1, "risk": "low", "tvl": "$1.8B", "audited": True, "insurance": False},
-                {"protocol": "Pendle", "asset": "PT-stETH", "apy": 8.7, "risk": "medium", "tvl": "$700M", "audited": True, "insurance": False},
-            ],
-            "arbitrum": [
-                {"protocol": "Aave V3", "asset": "USDC", "apy": 5.1, "risk": "low", "tvl": "$1.2B", "audited": True, "insurance": True},
-                {"protocol": "GMX", "asset": "GLP", "apy": 15.3, "risk": "medium", "tvl": "$500M", "audited": True, "insurance": False},
-                {"protocol": "Radiant", "asset": "USDC", "apy": 6.2, "risk": "medium", "tvl": "$200M", "audited": True, "insurance": False},
-            ],
-            "base": [
-                {"protocol": "Aerodrome", "asset": "USDC/ETH", "apy": 18.5, "risk": "medium", "tvl": "$800M", "audited": True, "insurance": False},
-                {"protocol": "Moonwell", "asset": "USDC", "apy": 4.8, "risk": "low", "tvl": "$300M", "audited": True, "insurance": False},
-            ],
-            "polygon": [
-                {"protocol": "Aave V3", "asset": "USDC", "apy": 4.5, "risk": "low", "tvl": "$900M", "audited": True, "insurance": True},
-                {"protocol": "QuickSwap", "asset": "USDC/ETH", "apy": 11.2, "risk": "medium", "tvl": "$150M", "audited": True, "insurance": False},
-            ],
-        }
-        chain_data = protocols.get(chain.lower(), protocols.get("ethereum", []))
-
-        risk_map = {"low": ["low"], "medium": ["low", "medium"], "high": ["low", "medium", "high"]}
-        allowed_risks = risk_map.get(risk_level.lower(), ["low"])
-        filtered = [p for p in chain_data if p["risk"] in allowed_risks]
-        filtered.sort(key=lambda x: x["apy"], reverse=True)
-
-        return json.dumps({
-            "chain": chain, "riskFilter": risk_level,
-            "opportunities": filtered, "count": len(filtered),
-            "safetyNote": "Only showing protocols with completed audits. APYs are estimates and may vary. Always verify on-chain before depositing.",
-        })
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
-
-# Tool 17: airdrop_checker — Track eligibility for upcoming airdrops
-@tool
-async def airdrop_checker(address: str, chain: str = "ethereum") -> str:
-    """Check a wallet's eligibility for known upcoming airdrops based on on-chain activity. Scans transaction history for qualifying activity on protocols likely to airdrop."""
-    try:
-        if not _blockchain:
-            return json.dumps({"status": "error", "message": "Blockchain service not initialized."})
-
-        # Get transaction count and activity summary
-        txs = await _blockchain.get_transactions(address, chain)
-        tx_count = len(txs) if txs else 0
-
-        # Identify protocols interacted with from transaction data
-        protocols_used = set()
-        categories_seen = set()
-        for tx in (txs or [])[:100]:
-            cat = tx.get("category", "")
-            categories_seen.add(cat)
-            to_addr = tx.get("to", "").lower()
-            # Map known router addresses to protocols
-            if to_addr:
-                protocols_used.add(to_addr[:10])
-
-        # Known airdrop opportunities (curated, safe)
-        opportunities = []
-
-        # Protocol activity-based eligibility
-        if tx_count >= 10:
-            opportunities.append({"protocol": "LayerZero (ZRO)", "status": "possible", "criteria": "Cross-chain bridge usage via Stargate/LayerZero", "action": "Bridge assets across chains using Stargate", "risk": "low"})
-        if tx_count >= 5:
-            opportunities.append({"protocol": "Scroll", "status": "possible", "criteria": "Activity on Scroll L2 (testnet/mainnet)", "action": "Deploy or interact with contracts on Scroll", "risk": "low"})
-        if "swap" in categories_seen or "trade" in categories_seen:
-            opportunities.append({"protocol": "Uniswap V4", "status": "speculative", "criteria": "Active DEX trading history", "action": "Continue using Uniswap for swaps", "risk": "low"})
-        if tx_count >= 20:
-            opportunities.append({"protocol": "EigenLayer", "status": "possible", "criteria": "Restaking activity", "action": "Stake ETH via EigenLayer", "risk": "medium"})
-
-        return json.dumps({
-            "wallet": address[:10] + "...", "chain": chain,
-            "totalTransactions": tx_count,
-            "protocolsInteracted": len(protocols_used),
-            "opportunities": opportunities, "count": len(opportunities),
-            "safetyNote": "⚠️ NEVER connect wallet to unknown airdrop claim sites. Only claim via official protocol websites. Verify URLs with check_threats first.",
-        })
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
-
-# Tool 18: expose_skills — Virtuals ACP / OpenClaw skill export
+# Tool 16: expose_skills — Virtuals ACP / OpenClaw skill export
 @tool
 def expose_skills() -> str:
-    """Export all Crypto Guardian tools as OpenClaw-compatible skill schema for Virtuals ACP. Other agents can discover, hire, and call our tools automatically."""
+    """Export all Crypto Guardian tools as OpenClaw-compatible skill schema for Virtuals ACP. Other agents can discover, hire, and call our tools automatically via x402 USDC micropayments."""
     skills = []
     for t in ALL_TOOLS:
         schema = {}
@@ -560,17 +469,19 @@ def expose_skills() -> str:
             "parameters": schema,
             "category": "security",
             "endpoint": "/api/acp/execute",
-            "pricing": {"model": "free", "cost": 0},
+            "pricing": {"model": "x402", "currency": "USDC", "network": "base"},
         })
     return json.dumps({
         "agent": "Crypto Guardian",
         "protocol": "OpenClaw/ACP",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "totalSkills": len(skills),
+        "payment": {"method": "x402", "currency": "USDC", "network": "base",
+                    "wallet": os.getenv("PAYMENT_WALLET", "")},
         "skills": skills,
     })
 
-# Tool 19: report_scam — Community scam address reporting
+# Tool 17: report_scam — Community scam address reporting
 @tool
 def report_scam(address: str, reason: str, category: str = "user_report") -> str:
     """Report a scam address to the community database. Address will be flagged and checked during future scans. Categories: drainer, phishing, rugpull, ponzi, honeypot, fake_token, approval_scam, or user_report."""
@@ -581,7 +492,7 @@ def report_scam(address: str, reason: str, category: str = "user_report") -> str
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
-# Tool 20: goat_verify — GOAT audit chain integrity verification
+# Tool 18: goat_verify — GOAT audit chain integrity verification
 @tool
 def goat_verify() -> str:
     """Verify the integrity of the entire GOAT audit chain. Checks every entry's hash against the previous hash to detect any tampering. Returns valid/broken status and chain length."""
@@ -591,7 +502,7 @@ def goat_verify() -> str:
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
-# Tool 21: scam_check — Instant known-scam address lookup
+# Tool 19: scam_check — Instant known-scam address lookup
 @tool
 def scam_check(address: str) -> str:
     """Instantly check if an address is a known scam in our database (200+ seeded addresses across 15 categories: drainers, phishing, rug pulls, honeypots, Ponzi, mixers, exploits, etc). Returns match details or clean status."""
@@ -604,13 +515,11 @@ def scam_check(address: str) -> str:
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
-# All tools (22 total) — matches system prompt
+# All tools (19 total)
 ALL_TOOLS = [
     scan_approvals, simulate_tx, check_threats, risk_score, revoke_risky,
     guardian_monitor, create_session_key, limited_revoke, limited_execute,
     on_chain_log, check_contract, check_gas, find_bridge_route, explain_term,
-    tax_simulate, yield_optimizer, airdrop_checker, expose_skills,
-    # Gap 2+3 tools (scam DB + GOAT chain):
-    report_scam, goat_verify, scam_check,
+    tax_simulate, expose_skills, report_scam, goat_verify, scam_check,
 ]
 

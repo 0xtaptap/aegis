@@ -1,0 +1,48 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "Crypto Guardian",
+  "name_for_model": "crypto_guardian",
+  "description_for_human": "On-chain AI security agent — scam detection, transaction simulation, approval scanning, contract auditing, gas optimization, and 24/7 threat monitoring across 7 EVM chains.",
+  "description_for_model": "Crypto Guardian is an autonomous on-chain security agent with 19 hireable skills. Use it to scan wallet approvals, simulate transactions before signing, check addresses/URLs for phishing and scams, calculate risk scores, audit smart contracts for rug pulls, compare gas across chains, find safe bridge routes, and generate crypto tax reports. Accepts x402 micropayments in USDC on Base.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "/api/acp/catalog"
+  },
+  "acp": {
+    "execute_endpoint": "/api/acp/execute",
+    "manifest_endpoint": "/api/acp/manifest.json",
+    "catalog_endpoint": "/api/acp/catalog",
+    "webhook_endpoint": "/api/webhooks/custom",
+    "health_endpoint": "/api/health"
+  },
+  "payment": {
+    "accepts": "x402",
+    "currency": "USDC",
+    "network": "base",
+    "chain_id": 8453,
+    "description": "Accepts x402 micropayments in USDC on Base. Skills priced $0.005-$0.02 per call."
+  },
+  "capabilities": [
+    "security",
+    "monitoring",
+    "execution",
+    "data",
+    "tax",
+    "audit"
+  ],
+  "chains_supported": [
+    "ethereum",
+    "polygon",
+    "bsc",
+    "arbitrum",
+    "base",
+    "optimism",
+    "avalanche"
+  ],
+  "logo_url": "/img/logo.png",
+  "contact_email": "",
+  "legal_info_url": ""
+}

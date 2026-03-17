@@ -607,63 +607,6 @@ async def ws_alerts(websocket: WebSocket):
         monitor.unregister_ws(websocket)
 
 
-# ═══════════════════════════════════════════════════════════════
-# VIRTUALS ACP — OpenClaw skill export  // ADDED FOR FINAL VERSION
-# ═══════════════════════════════════════════════════════════════
-@app.get("/api/acp/skills")
-async def acp_skills():
-    """OpenClaw-compatible skill schema for Virtuals agent discovery."""
-    from agent.tools import ALL_TOOLS
-    skills = []
-    for t in ALL_TOOLS:
-        params = {}
-        if hasattr(t, 'args_schema') and t.args_schema:
-            for name, field in t.args_schema.model_fields.items():
-                params[name] = {
-                    "type": field.annotation.__name__ if hasattr(field.annotation, '__name__') else str(field.annotation),
-                    "required": field.is_required(),
-                    "description": field.description or "",
-                    "default": field.default if field.default is not None else None,
-                }
-        skills.append({
-            "id": f"crypto-guardian:{t.name}",
-            "name": t.name,
-            "description": t.description or "",
-            "parameters": params,
-            "category": _tool_category(t.name),
-            "pricing": {"model": "free", "cost": 0},
-            "version": "2.0.0",
-        })
-    return {"agent": "Crypto Guardian", "protocol": "OpenClaw/ACP", "version": "2.0.0", "skills": skills}
-
-def _tool_category(name):
-    cats = {
-        "scan_approvals": "security", "simulate_tx": "security", "check_threats": "security",
-        "check_phishing": "security", "risk_score": "security", "check_contract": "security",
-        "revoke_risky": "execution", "limited_revoke": "execution", "limited_execute": "execution",
-        "create_session_key": "session", "guardian_monitor": "monitoring", "on_chain_log": "audit",
-        "check_gas": "data", "find_bridge_route": "data", "explain_term": "education",
-        "tax_simulate": "tax", "yield_optimizer": "defi", "airdrop_checker": "defi",
-        "expose_skills": "acp",
-    }
-    return cats.get(name, "general")
-
-@app.post("/api/acp/execute")
-@limiter.limit("30/minute")
-async def acp_execute(request: Request):
-    """Allow external Virtuals agents to call any tool by name."""
-    body = await request.json()
-    tool_name = body.get("tool", "")
-    args = body.get("args", {})
-    from agent.tools import ALL_TOOLS
-    tool_map = {t.name: t for t in ALL_TOOLS}
-    if tool_name not in tool_map:
-        return JSONResponse(status_code=404, content={"error": f"Tool '{tool_name}' not found"})
-    try:
-        result = await tool_map[tool_name].ainvoke(args)
-        return {"tool": tool_name, "result": json.loads(result) if isinstance(result, str) else result}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -782,6 +725,15 @@ async def get_wallet_memory(address: str):
 @app.get("/api/memory/incidents")
 async def get_all_incidents():
     return {"incidents": memory_store.get_incidents(limit=20) if memory_store else []}
+
+
+# ═══════════════════════════════════════════════════════════════
+# AGENT DISCOVERY — .well-known/ai-plugin.json
+# ═══════════════════════════════════════════════════════════════
+@app.get("/.well-known/ai-plugin.json")
+async def ai_plugin():
+    """Standard agent discovery file — crawlers and other agents look for this."""
+    return FileResponse("public/.well-known/ai-plugin.json", media_type="application/json")
 
 
 # ═══════════════════════════════════════════════════════════════
