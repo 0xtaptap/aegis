@@ -35,7 +35,13 @@ from services.wallet_store import wallet_store
 from services.gas_optimizer import GasOptimizer
 from services.tx_logger import tx_logger
 from services.bridge import BridgeService
+from services.memory_store import MemoryStore
+from services.event_triggers import TriggerEngine
 from agent.core import init_agent, run_agent
+from agent.goal_engine import GoalEngine
+from agent.perception_loop import PerceptionLoop
+from agent.acp_seller import ACPSkillCatalog
+from agent.tools import ALL_TOOLS
 
 # ── Rate limiter ─────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
@@ -47,6 +53,11 @@ safe_sdk: SafeSDK = None
 monitor: WalletMonitor = None
 gas_optimizer: GasOptimizer = None
 bridge_service: BridgeService = None
+memory_store: MemoryStore = None
+goal_engine: GoalEngine = None
+perception_loop: PerceptionLoop = None
+acp_catalog: ACPSkillCatalog = None
+trigger_engine: TriggerEngine = None
 ws_clients: list[WebSocket] = []
 
 # ── Address validation helper ────────────────────────────────
@@ -63,6 +74,8 @@ def validate_address(address: str) -> str | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global blockchain, threat_intel, safe_sdk, monitor, gas_optimizer, bridge_service
+    global memory_store, goal_engine, perception_loop, acp_catalog, trigger_engine
+
     key = os.getenv("ALCHEMY_API_KEY", "")
     blockchain = BlockchainService(key)
     threat_intel = ThreatIntel(blockchain)
@@ -70,16 +83,50 @@ async def lifespan(app: FastAPI):
     monitor = WalletMonitor(blockchain, threat_intel)
     gas_optimizer = GasOptimizer(blockchain)
     bridge_service = BridgeService()
+
+    # Phase 4: Persistent Memory
+    memory_store = MemoryStore()
+
+    # Phase 1: Goal Engine + Perception Loop
+    goal_engine = GoalEngine()
     await monitor.start()
     init_agent(blockchain, threat_intel, safe_sdk)
+
+    # Perception loop (autonomous brain)
+    perception_loop = PerceptionLoop(
+        goal_engine=goal_engine,
+        blockchain_service=blockchain,
+        threat_intel=threat_intel,
+        memory_store=memory_store,
+        monitor=monitor,
+        interval=int(os.getenv("PERCEPTION_INTERVAL", "120")),
+    )
+
+    # Wire run_agent as the thinking function for the perception loop
+    async def agent_fn(message, thread_id="autonomous"):
+        return await run_agent(message=message, thread_id=thread_id)
+    perception_loop.set_agent_fn(agent_fn)
+    await perception_loop.start()
+
+    # Phase 2: ACP Skill Catalog
+    acp_catalog = ACPSkillCatalog(ALL_TOOLS)
+
+    # Phase 3: Event Triggers
+    trigger_engine = TriggerEngine(perception_loop)
+
     print(f"\n🛡️  Crypto Guardian is live at http://localhost:{os.getenv('PORT', '3000')}")
     print(f"   Chains: {', '.join(CHAINS.keys())}")
-    print(f"   Mode: READ-ONLY")
+    print(f"   Mode: AUTONOMOUS")
     print(f"   Agent: LangGraph + GOAT session keys")
-    print(f"   Threat Engine: Own (6 modules, 0 external APIs)")
-    print(f"   Safe SDK: Transaction builder active")
-    print(f"   Sessions: SQLite persistent\n")
+    print(f"   Perception: Loop running (every {os.getenv('PERCEPTION_INTERVAL', '120')}s)")
+    print(f"   Goals: {goal_engine.get_stats()['active']} active")
+    print(f"   ACP: {len(ALL_TOOLS)} skills listed for agent-to-agent commerce")
+    print(f"   Memory: Persistent (SQLite)")
+    print(f"   Threat Engine: Own (6 modules + scam DB)\n")
+
     yield
+
+    await perception_loop.stop()
     await monitor.stop()
     await bridge_service.close()
     await blockchain.close()
@@ -93,7 +140,15 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ── Health check (Railway deployment) ────────────────────────
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "agent": "Crypto Guardian", "tools": 22}
+    return {
+        "status": "healthy",
+        "agent": "Crypto Guardian",
+        "tools": len(ALL_TOOLS),
+        "mode": perception_loop.get_status()["mode"] if perception_loop else "reactive",
+        "goals": goal_engine.get_stats() if goal_engine else {},
+        "memory": memory_store.get_stats() if memory_store else {},
+        "perception": perception_loop.get_status() if perception_loop else {},
+    }
 
 
 # ── Request Models ───────────────────────────────────────────
@@ -609,6 +664,124 @@ async def acp_execute(request: Request):
         return {"tool": tool_name, "result": json.loads(result) if isinstance(result, str) else result}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════
+#  AUTONOMOUS AGENT APIs — Goals, ACP, Webhooks, Memory
+# ═══════════════════════════════════════════════════════════════
+
+# ── Goal Management ──────────────────────────────────────────
+class GoalRequest(BaseModel):
+    type: str = "protect_wallet"
+    target: str = ""
+    chains: list[str] = ["ethereum"]
+    priority: int = 5
+    description: str = ""
+
+@app.get("/api/goals")
+async def list_goals():
+    return {"goals": goal_engine.list_goals() if goal_engine else []}
+
+@app.post("/api/goals")
+async def add_goal(req: GoalRequest):
+    if not goal_engine:
+        return JSONResponse(status_code=503, content={"error": "Goal engine not initialized"})
+    goal = goal_engine.add_goal(req.type, req.target, req.chains, req.priority, req.description)
+    return {"status": "created", "goal": goal.to_dict()}
+
+@app.delete("/api/goals/{goal_id}")
+async def remove_goal(goal_id: str):
+    if not goal_engine:
+        return JSONResponse(status_code=503, content={"error": "Goal engine not initialized"})
+    removed = goal_engine.remove_goal(goal_id)
+    return {"status": "removed" if removed else "not_found", "goalId": goal_id}
+
+
+# ── Perception Loop Status ───────────────────────────────────
+@app.get("/api/perception/status")
+async def perception_status():
+    return perception_loop.get_status() if perception_loop else {"running": False, "mode": "reactive"}
+
+@app.post("/api/perception/trigger")
+async def trigger_perception(request: Request):
+    """Manually trigger the perception loop with custom event data."""
+    body = await request.json()
+    if perception_loop:
+        perception_loop.trigger_event(body.get("type", "MANUAL"), body.get("data", {}))
+        return {"status": "triggered"}
+    return JSONResponse(status_code=503, content={"error": "Perception loop not running"})
+
+
+# ── ACP (Agent Commerce Protocol) ────────────────────────────
+@app.get("/api/acp/catalog")
+async def acp_catalog_endpoint():
+    """Skill catalog for agent-to-agent discovery."""
+    return acp_catalog.get_catalog() if acp_catalog else {"skills": []}
+
+@app.get("/api/acp/manifest.json")
+async def acp_manifest():
+    """Static manifest for ACP registry crawlers."""
+    return acp_catalog.get_manifest() if acp_catalog else {}
+
+@app.post("/api/acp/execute")
+async def acp_execute(request: Request):
+    """Execute a skill — called by external agents hiring our services."""
+    if not acp_catalog:
+        return JSONResponse(status_code=503, content={"error": "ACP not initialized"})
+    body = await request.json()
+    skill_id = body.get("skill", body.get("skill_id", ""))
+    params = body.get("params", body.get("parameters", {}))
+    if not skill_id:
+        return JSONResponse(status_code=400, content={"error": "Missing 'skill' field"})
+    result = await acp_catalog.execute_skill(skill_id, params)
+    return result
+
+@app.get("/api/acp/stats")
+async def acp_stats():
+    return acp_catalog.get_stats() if acp_catalog else {}
+
+
+# ── Webhooks (Event Triggers) ────────────────────────────────
+@app.post("/api/webhooks/alchemy")
+async def alchemy_webhook(request: Request):
+    """Receive Alchemy webhook notifications → triggers autonomous reasoning."""
+    if not trigger_engine:
+        return JSONResponse(status_code=503, content={"error": "Trigger engine not initialized"})
+    body = await request.json()
+    result = trigger_engine.process_alchemy_webhook(body)
+    return result
+
+@app.post("/api/webhooks/custom")
+async def custom_webhook(request: Request):
+    """Generic webhook receiver for external systems."""
+    if not trigger_engine:
+        return JSONResponse(status_code=503, content={"error": "Trigger engine not initialized"})
+    body = await request.json()
+    result = trigger_engine.process_custom_webhook(body)
+    return result
+
+@app.get("/api/webhooks/stats")
+async def webhook_stats():
+    return trigger_engine.get_stats() if trigger_engine else {}
+
+
+# ── Memory ───────────────────────────────────────────────────
+@app.get("/api/memory/stats")
+async def memory_stats():
+    return memory_store.get_stats() if memory_store else {}
+
+@app.get("/api/memory/wallet/{address}")
+async def get_wallet_memory(address: str):
+    if not memory_store:
+        return JSONResponse(status_code=503, content={"error": "Memory not initialized"})
+    profile = memory_store.get_wallet_profile(address)
+    incidents = memory_store.get_incidents(address, limit=10)
+    context = memory_store.get_context_for_wallet(address)
+    return {"profile": profile, "incidents": incidents, "context": context}
+
+@app.get("/api/memory/incidents")
+async def get_all_incidents():
+    return {"incidents": memory_store.get_incidents(limit=20) if memory_store else []}
 
 
 # ═══════════════════════════════════════════════════════════════
