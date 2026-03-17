@@ -168,7 +168,12 @@ class PerceptionLoop:
 
         for goal in goals:
             try:
-                if goal.type.value == "protect_wallet":
+                if goal.type.value == "sentinel":
+                    # SENTINEL = do EVERYTHING
+                    obs = await self._observe_sentinel(goal.chains)
+                    observations.extend(obs)
+
+                elif goal.type.value == "protect_wallet":
                     obs = await self._observe_wallet(goal.target, goal.chains)
                     observations.extend(obs)
 
@@ -252,17 +257,56 @@ class PerceptionLoop:
         obs = []
         if self._threat and hasattr(self._threat, 'scam_db'):
             stats = self._threat.scam_db.get_stats()
-            if stats.get("community_reports", 0) > 0:
-                obs.append({
-                    "source": "scam_db", "type": "new_community_reports",
-                    "data": stats, "priority": 4,
-                })
+            obs.append({
+                "source": "scam_db", "type": "scam_db_status",
+                "data": {"total_known": stats.get("total", 0),
+                         "community_reports": stats.get("community_reports", 0),
+                         "categories": stats.get("categories", {})},
+                "priority": 5,
+            })
         return obs
 
     async def _observe_threats(self) -> list[dict]:
-        """Check for active threat patterns."""
+        """Check for active threat patterns from monitor history."""
         obs = []
-        # Placeholder for future threat feed integration
+        # Pull recent alerts from memory if we have them
+        if self._memory:
+            recent_incidents = self._memory.get_incidents(limit=5)
+            if recent_incidents:
+                obs.append({
+                    "source": "memory", "type": "recent_threat_history",
+                    "data": {"count": len(recent_incidents),
+                             "types": [i.get("type", "") for i in recent_incidents],
+                             "latest": recent_incidents[0] if recent_incidents else {}},
+                    "priority": 5,
+                })
+        return obs
+
+    async def _observe_sentinel(self, chains: list[str]) -> list[dict]:
+        """SENTINEL mode: combine ALL observation types into one comprehensive sweep."""
+        obs = []
+        # 1. Check scam database
+        obs.extend(await self._observe_scam_activity(chains))
+        # 2. Check threat history
+        obs.extend(await self._observe_threats())
+        # 3. Check all watched wallets from monitor
+        if self._monitor:
+            try:
+                watchlist = self._monitor.get_watchlist()
+                for entry in watchlist[:10]:
+                    addr = entry.get("address", "")
+                    wallet_chains = entry.get("chains", ["ethereum"])
+                    obs.extend(await self._observe_wallet(addr, wallet_chains))
+                    obs.extend(await self._observe_approvals(addr, wallet_chains))
+            except Exception:
+                pass
+        # 4. Always report a heartbeat so the LLM thinks even when quiet
+        obs.append({
+            "source": "sentinel", "type": "heartbeat",
+            "data": {"cycle": self._cycle_count, "chains": chains,
+                     "message": "Sentinel active. Review all observations and think about potential threats."},
+            "priority": 8,
+        })
         return obs
 
     async def _observe_portfolio(self, address: str, chains: list[str]) -> list[dict]:
@@ -299,12 +343,14 @@ class PerceptionLoop:
             "[AUTONOMOUS MODE — Cycle #%d]\n"
             "[Active Goals: %s]\n"
             "[Observations (%d total, %d important)]\n%s\n\n"
-            "Based on these observations and your goals, decide what to do:\n"
-            "- If threats detected → investigate with tools, alert the user\n"
-            "- If risky approvals → recommend revocation\n"
-            "- If nothing urgent → briefly note status and wait\n"
-            "- Always log important actions to GOAT chain\n"
-            "Be concise. Only take action if warranted."
+            "You are an always-on security sentinel. Based on these observations:\n"
+            "1. ANALYZE: What threats, risks, or anomalies do you see?\n"
+            "2. DETECT: Are there any scam patterns, risky approvals, or suspicious interactions?\n"
+            "3. ACT: If threats found → use your tools to investigate deeper (scam_check, check_contract, scan_approvals)\n"
+            "4. ALERT: Flag anything dangerous for the user\n"
+            "5. LOG: Record important findings to the GOAT chain\n"
+            "Think carefully. Even if things look quiet, consider what COULD be a threat.\n"
+            "Be concise but thorough."
         ) % (self._cycle_count, goal_summary, len(observations), len(important), obs_text)
 
         try:

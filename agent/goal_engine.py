@@ -19,6 +19,7 @@ class GoalType(str, Enum):
     HUNT_SCAMS = "hunt_scams"                 # Proactively scan for scam contracts
     TRACK_THREATS = "track_threats"           # Follow threat intel patterns
     GUARD_PORTFOLIO = "guard_portfolio"       # Full portfolio risk management
+    SENTINEL = "sentinel"                     # Always-on: watch everything, think, detect early
 
 
 @dataclass
@@ -78,20 +79,12 @@ class GoalEngine:
         stats = self.get_stats()
         if stats["total"] > 0:
             return  # Already has goals
-        # Seed 3 default goals
-        self.add_goal("hunt_scams", "*",
-                      chains=["ethereum", "polygon", "bsc", "arbitrum", "base"],
-                      priority=8,
-                      description="Proactively scan for new scam contracts and patterns across all chains")
-        self.add_goal("track_threats", "*",
-                      chains=["ethereum", "polygon", "bsc"],
-                      priority=7,
-                      description="Monitor threat intelligence feeds and community scam reports")
-        self.add_goal("monitor_approvals", "*",
-                      chains=["ethereum", "polygon", "bsc", "arbitrum", "base"],
-                      priority=6,
-                      description="Watch all connected wallets for risky approvals")
-        print("[GoalEngine] Auto-seeded 3 default goals")
+        # One master sentinel goal — always watching, always thinking
+        self.add_goal("sentinel", "*",
+                      chains=["ethereum", "polygon", "bsc", "arbitrum", "base", "optimism", "avalanche"],
+                      priority=10,
+                      description="Always-on sentinel: watch all chains, detect scams, monitor approvals, track threats, think proactively about security")
+        print("[GoalEngine] Auto-seeded SENTINEL goal — agent is always watching")
 
     def add_goal(self, goal_type: str, target: str, chains: list[str] = None,
                  priority: int = 5, description: str = "") -> Goal:
