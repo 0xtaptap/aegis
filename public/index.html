@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Crypto Guardian — AI-powered on-chain security agent. 14 tools, 7 chains, real-time protection.">
+  <title>Crypto Guardian — AI Security Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <!-- ═══ SIDEBAR NAV ═══ -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🛡️</div>
+      <span class="logo-name">Guardian</span>
+    </div>
+    <div class="sidebar-nav">
+      <button class="nav-item active" data-tab="overview" id="navOverview">
+        <span class="nav-icon">◎</span><span class="nav-label">Overview</span>
+      </button>
+      <button class="nav-item" data-tab="scanner" id="navScanner">
+        <span class="nav-icon">🔬</span><span class="nav-label">Token Scanner</span>
+      </button>
+      <button class="nav-item" data-tab="approvals" id="navApprovals">
+        <span class="nav-icon">🔓</span><span class="nav-label">Approvals</span>
+      </button>
+      <button class="nav-item" data-tab="gas" id="navGas">
+        <span class="nav-icon">⛽</span><span class="nav-label">Gas Tracker</span>
+      </button>
+      <button class="nav-item" data-tab="bridge" id="navBridge">
+        <span class="nav-icon">🌉</span><span class="nav-label">Bridge</span>
+      </button>
+      <button class="nav-item" data-tab="wallets" id="navWallets">
+        <span class="nav-icon">👛</span><span class="nav-label">Wallets</span>
+      </button>
+      <button class="nav-item" data-tab="alerts" id="navAlerts">
+        <span class="nav-icon">🔔</span><span class="nav-label">Alerts</span>
+        <span class="nav-badge" id="alertBadge" style="display:none">0</span>
+      </button>
+      <button class="nav-item" data-tab="export" id="navExport">
+        <span class="nav-icon">📊</span><span class="nav-label">Tax Export</span>
+      </button>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-status">
+        <div class="status-dot-live"></div>
+        <span>14 Tools Active</span>
+      </div>
+      <div class="sidebar-chains">7 Chains</div>
+    </div>
+  </nav>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="main-content">
+
+    <!-- ── Top Bar ──────────────────────────────────────── -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="sidebar-toggle" id="sidebarToggle">☰</button>
+        <div class="topbar-wallet">
+          <input type="text" id="walletInput" placeholder="0x... paste wallet address" spellcheck="false" autocomplete="off">
+          <select id="chainSelect" class="chain-select-top">
+            <option value="ethereum">Ethereum</option>
+            <option value="polygon">Polygon</option>
+            <option value="bsc">BSC</option>
+            <option value="arbitrum">Arbitrum</option>
+            <option value="base">Base</option>
+            <option value="optimism">Optimism</option>
+            <option value="avalanche">Avalanche</option>
+            <option value="all">All Chains</option>
+          </select>
+          <button class="scan-btn-top" id="scanBtn">SCAN</button>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="mode-badge" id="modeBadge">
+          <div class="mode-dot"></div>
+          <span>READ-ONLY</span>
+        </div>
+        <div class="guardian-toggle-top">
+          <span>Guardian</span>
+          <div class="toggle-switch-sm" id="guardianToggle">
+            <div class="toggle-knob-sm"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── Live Alert Banner ───────────────────────────── -->
+    <div class="alert-banner" id="alertBanner" style="display:none">
+      <span class="alert-banner-icon">⚠️</span>
+      <span class="alert-banner-text" id="alertBannerText">No active threats</span>
+      <button class="alert-banner-close" id="alertBannerClose">✕</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: OVERVIEW                                      -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content active" id="tab-overview">
+      <div class="overview-grid">
+
+        <!-- Risk Gauge -->
+        <div class="card card-risk">
+          <div class="card-head">
+            <h3>Risk Score</h3>
+            <span class="card-tag tag-live">LIVE</span>
+          </div>
+          <div class="risk-gauge-wrap">
+            <svg class="risk-gauge" viewBox="0 0 200 200">
+              <circle class="gauge-bg" cx="100" cy="100" r="80" />
+              <circle class="gauge-fill" id="gaugeFill" cx="100" cy="100" r="80" />
+              <text class="gauge-score" x="100" y="95" id="gaugeScore">—</text>
+              <text class="gauge-sub" x="100" y="118" id="gaugeLabel">Scan to begin</text>
+            </svg>
+          </div>
+          <div class="risk-stats">
+            <div class="rstat"><span class="rstat-val" id="statApprovals">—</span><span class="rstat-lbl">Approvals</span></div>
+            <div class="rstat"><span class="rstat-val" id="statUnlimited">—</span><span class="rstat-lbl">Unlimited</span></div>
+            <div class="rstat"><span class="rstat-val" id="statStale">—</span><span class="rstat-lbl">Stale</span></div>
+            <div class="rstat"><span class="rstat-val" id="statTxs">—</span><span class="rstat-lbl">Transactions</span></div>
+          </div>
+        </div>
+
+        <!-- Quick Gas -->
+        <div class="card card-gas-mini">
+          <div class="card-head">
+            <h3>Gas Now</h3>
+            <button class="icon-btn" id="gasRefreshBtn" title="Refresh">↻</button>
+          </div>
+          <div class="gas-mini-grid" id="gasMiniGrid">
+            <div class="empty-state-sm">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card card-actions">
+          <div class="card-head"><h3>Quick Actions</h3></div>
+          <div class="quick-grid">
+            <button class="qbtn" onclick="switchTab('scanner')"><span>🔬</span>Scan Token</button>
+            <button class="qbtn" onclick="switchTab('bridge')"><span>🌉</span>Bridge</button>
+            <button class="qbtn" onclick="switchTab('gas')"><span>⛽</span>Gas</button>
+            <button class="qbtn" onclick="switchTab('wallets')"><span>👛</span>Wallets</button>
+            <button class="qbtn" onclick="switchTab('approvals')"><span>🔓</span>Approvals</button>
+            <button class="qbtn" onclick="switchTab('export')"><span>📊</span>Export</button>
+          </div>
+        </div>
+
+        <!-- Phishing Check -->
+        <div class="card card-phish">
+          <div class="card-head"><h3>Phishing Checker</h3></div>
+          <div class="input-row-sm">
+            <input type="text" id="phishingInput" placeholder="Paste URL, address, or message…" spellcheck="false">
+            <button class="btn-action" id="phishingCheckBtn">Check</button>
+          </div>
+          <div id="phishingResult" class="result-area"></div>
+        </div>
+
+        <!-- Activity Feed -->
+        <div class="card card-feed">
+          <div class="card-head"><h3>Activity Feed</h3><span class="card-tag">LATEST</span></div>
+          <div class="feed-list" id="txList">
+            <div class="empty-state-sm">Scan a wallet to see activity</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: TOKEN SCANNER                                 -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-scanner">
+      <div class="tab-header">
+        <h2>🔬 Token Scanner</h2>
+        <p>Real on-chain rug pull detection — ownership, age, holder concentration, honeypot simulation</p>
+      </div>
+      <div class="scanner-card card">
+        <div class="input-row-lg">
+          <input type="text" id="tokenInput" placeholder="Paste token contract address (0x...)" spellcheck="false" class="input-lg">
+          <select id="tokenChainSelect" class="chain-select-top">
+            <option value="ethereum">Ethereum</option>
+            <option value="polygon">Polygon</option>
+            <option value="bsc">BSC</option>
+            <option value="arbitrum">Arbitrum</option>
+            <option value="base">Base</option>
+            <option value="optimism">Optimism</option>
+            <option value="avalanche">Avalanche</option>
+          </select>
+          <button class="btn-primary" id="tokenCheckBtn">Analyze Token</button>
+        </div>
+        <div class="scanner-checks">
+          <div class="check-item"><span class="check-icon">🔍</span>Ownership Check (eth_call 0x8da5cb5b)</div>
+          <div class="check-item"><span class="check-icon">📊</span>Holder Concentration (balanceOf / totalSupply)</div>
+          <div class="check-item"><span class="check-icon">⏰</span>Contract Age (first transfer via alchemy_getAssetTransfers)</div>
+          <div class="check-item"><span class="check-icon">🍯</span>Honeypot Simulation (sell test)</div>
+        </div>
+        <div id="tokenResult" class="result-area"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: APPROVALS                                     -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-approvals">
+      <div class="tab-header">
+        <h2>🔓 Token Approvals</h2>
+        <p>Scan and revoke risky token approvals across all chains</p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Approval List</h3>
+          <span class="card-count" id="approvalCount">0</span>
+        </div>
+        <div id="approvalsTable" class="table-area">
+          <div class="empty-state-sm">Scan a wallet above to list approvals</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <h3>Revoke Manager</h3>
+          <span class="card-tag tag-readonly">READ-ONLY</span>
+        </div>
+        <div id="revokeList" class="table-area">
+          <div class="empty-state-sm">Approvals flagged as risky will appear here</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: GAS                                           -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-gas">
+      <div class="tab-header">
+        <h2>⛽ Gas Tracker</h2>
+        <p>Live gas prices via eth_gasPrice + eth_feeHistory across all 7 chains</p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Current Prices</h3>
+          <button class="icon-btn" id="gasRefreshBtn2" title="Refresh">↻</button>
+        </div>
+        <div class="gas-full-grid" id="gasFullGrid">
+          <div class="empty-state-sm">Click refresh to load</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: BRIDGE                                        -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-bridge">
+      <div class="tab-header">
+        <h2>🌉 Bridge Finder</h2>
+        <p>Cross-chain route comparison powered by Li.Fi API — no API key needed</p>
+      </div>
+      <div class="card">
+        <div class="bridge-form">
+          <div class="bridge-side">
+            <label>From</label>
+            <select id="bridgeFrom" class="chain-select-top">
+              <option value="ethereum">Ethereum</option>
+              <option value="polygon">Polygon</option>
+              <option value="bsc">BSC</option>
+              <option value="arbitrum">Arbitrum</option>
+              <option value="base">Base</option>
+              <option value="optimism">Optimism</option>
+              <option value="avalanche">Avalanche</option>
+            </select>
+          </div>
+          <div class="bridge-arrow-lg">→</div>
+          <div class="bridge-side">
+            <label>To</label>
+            <select id="bridgeTo" class="chain-select-top">
+              <option value="base">Base</option>
+              <option value="ethereum">Ethereum</option>
+              <option value="polygon">Polygon</option>
+              <option value="bsc">BSC</option>
+              <option value="arbitrum">Arbitrum</option>
+              <option value="optimism">Optimism</option>
+              <option value="avalanche">Avalanche</option>
+            </select>
+          </div>
+          <div class="bridge-side">
+            <label>Token</label>
+            <select id="bridgeToken" class="chain-select-top">
+              <option value="ETH">ETH</option>
+              <option value="USDC">USDC</option>
+              <option value="USDT">USDT</option>
+            </select>
+          </div>
+          <div class="bridge-side">
+            <label>Amount</label>
+            <input type="number" id="bridgeAmount" value="1" min="0.001" step="0.1" class="input-amount">
+          </div>
+          <button class="btn-primary" id="bridgeCheckBtn">Find Route</button>
+        </div>
+        <div id="bridgeResult" class="result-area"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: WALLETS                                       -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-wallets">
+      <div class="tab-header">
+        <h2>👛 Multi-Wallet Manager</h2>
+        <p>Track multiple wallets with aggregate risk scanning</p>
+      </div>
+      <div class="card">
+        <div class="input-row-lg">
+          <input type="text" id="walletAddInput" placeholder="0x... add wallet address" spellcheck="false" class="input-lg">
+          <input type="text" id="walletLabelInput" placeholder="Label" class="input-sm">
+          <button class="btn-primary" id="walletAddBtn">Add Wallet</button>
+        </div>
+        <div id="walletList" class="wallet-list-area">
+          <div class="empty-state-sm">No wallets tracked yet</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: ALERTS                                        -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-alerts">
+      <div class="tab-header">
+        <h2>🔔 Monitor Alerts</h2>
+        <p>Background monitoring — polls every 60s for new approvals, large outflows, and suspicious activity</p>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Alert Feed</h3>
+          <div class="monitor-live" id="monitorStatus">
+            <div class="status-dot-live"></div>
+            <span>Monitoring</span>
+          </div>
+        </div>
+        <div id="alertFeed" class="feed-list">
+          <div class="empty-state-sm">Enable Guardian Mode and add wallets to see alerts</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- TAB: EXPORT                                        -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section class="tab-content" id="tab-export">
+      <div class="tab-header">
+        <h2>📊 Tax Report Center</h2>
+        <p>Country-specific crypto tax simulation — real 2025/2026 rates, cost basis methods, exemptions, and optimization tips</p>
+      </div>
+
+      <!-- Wallet + Method Input -->
+      <div class="card">
+        <div class="card-head"><h3>Configuration</h3></div>
+        <div class="input-row-lg">
+          <input type="text" id="exportAddressInput" placeholder="0x... wallet address" spellcheck="false" class="input-lg">
+          <select id="costBasisMethod" class="chain-select-top">
+            <option value="FIFO">FIFO (First-In First-Out)</option>
+            <option value="LIFO">LIFO (Last-In First-Out)</option>
+            <option value="HIFO">HIFO (Highest-In First-Out)</option>
+          </select>
+        </div>
+        <div class="tax-actions">
+          <button class="btn-primary" id="exportCsvBtn">📥 Koinly CSV</button>
+          <button class="btn-secondary" id="exportSummaryBtn">📋 Summary</button>
+          <button class="btn-secondary" id="exportGainsBtn">📈 Capital Gains</button>
+          <button class="btn-secondary" id="exportIncomeBtn">💰 Income Report</button>
+          <button class="btn-secondary" id="exportHarvestBtn">🌱 Tax Harvesting</button>
+        </div>
+      </div>
+
+      <!-- Country Tax Simulation -->
+      <div class="card" style="margin-top:14px">
+        <div class="card-head"><h3>🌍 Country Tax Simulation</h3></div>
+        <div class="input-row-lg">
+          <select id="taxCountry" class="chain-select-top">
+            <option value="US">🇺🇸 United States</option>
+            <option value="UK">🇬🇧 United Kingdom</option>
+            <option value="IN">🇮🇳 India</option>
+            <option value="DE">🇩🇪 Germany</option>
+            <option value="AU">🇦🇺 Australia</option>
+            <option value="CA">🇨🇦 Canada</option>
+            <option value="FR">🇫🇷 France</option>
+            <option value="JP">🇯🇵 Japan</option>
+            <option value="KR">🇰🇷 South Korea</option>
+            <option value="SG">🇸🇬 Singapore</option>
+          </select>
+          <input type="number" id="taxAnnualIncome" placeholder="Annual income (local currency)" value="50000" min="0" step="1000" class="input-lg">
+          <button class="btn-primary" id="exportSimulateBtn">🧮 Simulate Tax</button>
+        </div>
+        <div style="font-size:0.7rem;color:var(--text-3);margin-top:8px">Applies your country's real 2025/2026 tax brackets, exemptions, and crypto-specific rules</div>
+      </div>
+
+      <!-- Report Methods Info -->
+      <div class="card" style="margin-top:14px">
+        <div class="card-head"><h3>What Each Report Does</h3></div>
+        <div class="scanner-checks">
+          <div class="check-item"><span class="check-icon">📥</span><strong>Koinly CSV</strong> — Universal format for import to Koinly, CoinTracker, TurboTax</div>
+          <div class="check-item"><span class="check-icon">📈</span><strong>Capital Gains</strong> — Lot matching via FIFO/LIFO/HIFO with short vs long term split</div>
+          <div class="check-item"><span class="check-icon">💰</span><strong>Income</strong> — Staking, airdrops, mining classified as ordinary income</div>
+          <div class="check-item"><span class="check-icon">🌱</span><strong>Harvesting</strong> — Find positions to sell for tax-loss offset</div>
+          <div class="check-item"><span class="check-icon">🧮</span><strong>Simulate</strong> — Country-specific rates, forms, exemptions, optimization tips</div>
+          <div class="check-item"><span class="check-icon">🌍</span><strong>10 Countries</strong> — US, UK, India, Germany, Australia, Canada, France, Japan, S.Korea, Singapore</div>
+        </div>
+      </div>
+
+      <!-- Results Area -->
+      <div class="card" id="exportResultCard" style="margin-top:14px; display:none">
+        <div class="card-head"><h3 id="exportResultTitle">Report</h3></div>
+        <div id="exportResult" class="result-area"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══ AI CHAT PANEL (bottom dock) ═══ -->
+  <div class="chat-dock" id="chatDock">
+    <div class="chat-dock-header" id="chatDockToggle">
+      <div class="chat-dock-left">
+        <span class="chat-dock-icon">🛡️</span>
+        <strong>Ask Guardian</strong>
+        <span class="chat-dock-sub">14 tools • 7 chains • AI-powered</span>
+      </div>
+      <div class="chat-dock-right">
+        <span class="chat-dock-expand" id="chatExpandBtn">▲</span>
+      </div>
+    </div>
+    <div class="chat-dock-body" id="chatDockBody">
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-msg assistant">
+          <div class="msg-avatar">🛡️</div>
+          <div class="msg-content">
+            <p>Hey! I'm your Crypto Guardian — <strong>14 tools, 7 chains, real-time protection.</strong></p>
+            <p>Try: <em>"check token 0x..."</em>, <em>"compare gas"</em>, <em>"bridge 1 ETH to Base"</em>, <em>"what is a rug pull?"</em></p>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-dock">
+        <input type="text" id="chatInput" placeholder="Ask Guardian anything…" autocomplete="off">
+        <button class="chat-send-btn" id="chatSend">↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SCRIPTS ═══ -->
+  <script src="/js/utils.js"></script>
+  <script src="/js/scanner.js"></script>
+  <script src="/js/risk.js"></script>
+  <script src="/js/monitor.js"></script>
+  <script src="/js/features.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/app.js"></script>
+
+  <!-- Tab navigation -->
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      const tab = document.getElementById('tab-' + tabId);
+      if (tab) tab.classList.add('active');
+      const nav = document.querySelector(`[data-tab="${tabId}"]`);
+      if (nav) nav.classList.add('active');
+    }
+    document.querySelectorAll('.nav-item').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    if (sidebarToggle) {
+      sidebarToggle.addEventListener('click', () => {
+        document.getElementById('sidebar').classList.toggle('collapsed');
+        document.querySelector('.main-content').classList.toggle('expanded');
+      });
+    }
+
+    // Chat dock toggle
+    const chatDockToggle = document.getElementById('chatDockToggle');
+    const chatDockBody = document.getElementById('chatDockBody');
+    const chatExpandBtn = document.getElementById('chatExpandBtn');
+    if (chatDockToggle) {
+      chatDockToggle.addEventListener('click', () => {
+        chatDockBody.classList.toggle('open');
+        chatExpandBtn.textContent = chatDockBody.classList.contains('open') ? '▼' : '▲';
+      });
+    }
+
+    // Alert banner close
+    const alertBannerClose = document.getElementById('alertBannerClose');
+    if (alertBannerClose) {
+      alertBannerClose.addEventListener('click', () => {
+        document.getElementById('alertBanner').style.display = 'none';
+      });
+    }
+  </script>
+</body>
+</html>

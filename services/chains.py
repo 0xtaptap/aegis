@@ -1,0 +1,77 @@
+# ==============================================================
+# Chain Configurations -- 16 Chains
+# ==============================================================
+
+CHAINS = {
+    "ethereum": {
+        "name": "Ethereum",
+        "chain_id": 1,
+        "symbol": "ETH",
+        "color": "#627EEA",
+        "rpc_url": "https://eth-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://etherscan.io",
+        "is_alchemy": True,
+        "secs_per_block": 12,
+    },
+    "polygon": {
+        "name": "Polygon",
+        "chain_id": 137,
+        "symbol": "MATIC",
+        "color": "#8247E5",
+        "rpc_url": "https://polygon-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://polygonscan.com",
+        "is_alchemy": True,
+        "secs_per_block": 2,
+    },
+    "bsc": {
+        "name": "BSC",
+        "chain_id": 56,
+        "symbol": "BNB",
+        "color": "#F3BA2F",
+        "rpc_url": "https://bnb-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://bscscan.com",
+        "is_alchemy": True,
+        "secs_per_block": 3,
+    },
+    "arbitrum": {
+        "name": "Arbitrum",
+        "chain_id": 42161,
+        "symbol": "ETH",
+        "color": "#28A0F0",
+        "rpc_url": "https://arb-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://arbiscan.io",
+        "is_alchemy": True,
+        "secs_per_block": 0.25,
+    },
+    "base": {
+        "name": "Base",
+        "chain_id": 8453,
+        "symbol": "ETH",
+        "color": "#0052FF",
+        "rpc_url": "https://base-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://basescan.org",
+        "is_alchemy": True,
+        "secs_per_block": 2,
+    },
+    "optimism": {
+        "name": "Optimism",
+        "chain_id": 10,
+        "symbol": "ETH",
+        "color": "#FF0420",
+        "rpc_url": "https://opt-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://optimistic.etherscan.io",
+        "is_alchemy": True,
+        "secs_per_block": 2,
+    },
+    "avalanche": {
+        "name": "Avalanche",
+        "chain_id": 43114,
+        "symbol": "AVAX",
+        "color": "#E84142",
+        "rpc_url": "https://avax-mainnet.g.alchemy.com/v2/{key}",
+        "explorer": "https://snowtrace.io",
+        "is_alchemy": True,
+        "secs_per_block": 2,
+    },
+}
+
