@@ -8,6 +8,11 @@ Detection capabilities:
   3. Token scam detection (fake names, suspicious patterns)
   4. Address risk scoring (fan-in patterns, fund flow)
   5. Phishing URL/domain detection (open-source blacklists + heuristics)
+
+Intelligence Layer (v2):
+  - Evidence-based confidence scoring (replaces flat additive)
+  - Rules engine fast-path for known protocols
+  - All findings carry source + confidence metadata
 """
 
 import re
@@ -17,6 +22,8 @@ import sqlite3
 import os
 from dataclasses import dataclass, field
 from services.chains import CHAINS
+from services.confidence import Evidence, EvidenceSource, ConfidenceCalculator, confidence_calculator
+from services.rules_engine import RulesEngine, Trust, Verdict
 
 # ── Known dangerous bytecode patterns ─────────────────────────
 # These indicate owner can manipulate the contract
@@ -382,6 +389,8 @@ class ThreatReport:
     risk_score: int        # 0-100
     risk_level: str        # LOW, MEDIUM, HIGH, CRITICAL
     findings: list = field(default_factory=list)
+    confidence: float = 0.5          # 0.0-1.0 how confident we are in the score
+    evidence_sources: list = field(default_factory=list)  # list of source strings
 
     def to_dict(self) -> dict:
         return {
@@ -390,6 +399,8 @@ class ThreatReport:
             "riskScore": self.risk_score,
             "riskLevel": self.risk_level,
             "findings": self.findings,
+            "confidence": round(self.confidence, 2),
+            "evidenceSources": self.evidence_sources,
         }
 
 
@@ -397,14 +408,16 @@ class ThreatIntel:
     """
     Self-contained threat intelligence engine.
     Uses Alchemy RPC for on-chain analysis — zero external API dependencies.
-    Now includes ScamDatabase for known address matching.
+    Now includes ScamDatabase + RulesEngine + Confidence scoring.
     """
 
-    def __init__(self, blockchain_service):
+    def __init__(self, blockchain_service, rules_engine: RulesEngine = None):
         self._bc = blockchain_service
         self._cache: dict[str, tuple[float, ThreatReport]] = {}  # addr -> (time, report)
         self._cache_ttl = 300  # 5 min
         self.scam_db = _scam_db  # Reference global scam database
+        self._rules = rules_engine  # Deterministic rules engine (optional)
+        self._confidence = confidence_calculator  # Evidence-based scoring
 
     # ═══════════════════════════════════════════════════════════════
     # 1. CONTRACT RISK ANALYSIS
@@ -417,86 +430,123 @@ class ThreatIntel:
             return cached
 
         findings = []
+        evidence_list = []  # For confidence scoring
         score = 0
+
+        # ── FAST PATH: Rules engine check ──────────────────────
+        if self._rules:
+            trust, info = self._rules.classify(address, chain)
+            if trust == Trust.TRUSTED:
+                findings.append({
+                    "type": "VERIFIED_PROTOCOL",
+                    "severity": "LOW",
+                    "detail": "Verified protocol: %s (%s)" % (info.name, info.category.value),
+                    "evidenceSource": "protocol_registry",
+                })
+                report = ThreatReport(address, "contract", 0, "LOW", findings,
+                                      confidence=0.95,
+                                      evidence_sources=["protocol_registry"])
+                self._set_cached(cache_key, report)
+                return report
 
         # 1a. Get contract bytecode
         bytecode = await self._bc._rpc(chain, "eth_getCode", [address, "latest"])
 
         if not bytecode or bytecode == "0x":
-            # EOA (not a contract)
-            findings.append({"type": "EOA", "severity": "INFO", "detail": "This is a regular wallet, not a contract."})
-            report = ThreatReport(address, "contract", 0, "INFO", findings)
+            findings.append({"type": "EOA", "severity": "INFO", "detail": "This is a regular wallet, not a contract.",
+                             "evidenceSource": "on_chain_verified"})
+            report = ThreatReport(address, "contract", 0, "INFO", findings,
+                                  confidence=0.95, evidence_sources=["on_chain_verified"])
             self._set_cached(cache_key, report)
             return report
 
         bytecode_lower = bytecode.lower()
 
         # 1b. Check for proxy pattern (delegatecall)
-        if "f4" in bytecode_lower[2:100]:  # delegatecall in first ~50 bytes = proxy
+        if "f4" in bytecode_lower[2:100]:
             findings.append({
-                "type": "PROXY_CONTRACT",
-                "severity": "MEDIUM",
+                "type": "PROXY_CONTRACT", "severity": "MEDIUM",
                 "detail": "Proxy contract detected. Owner can change the logic at any time.",
+                "evidenceSource": "on_chain_verified",
             })
-            score += 20
+            evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "PROXY_CONTRACT",
+                                          "Delegatecall in bytecode", "MEDIUM", raw_score=20))
 
         # 1c. Check for selfdestruct
-        if "ff" in bytecode_lower[-20:]:  # selfdestruct near end = kill switch
+        if "ff" in bytecode_lower[-20:]:
             findings.append({
-                "type": "SELFDESTRUCT",
-                "severity": "CRITICAL",
+                "type": "SELFDESTRUCT", "severity": "CRITICAL",
                 "detail": "Contract has selfdestruct. Owner can destroy it and steal pooled funds.",
+                "evidenceSource": "on_chain_verified",
             })
-            score += 40
+            evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "SELFDESTRUCT",
+                                          "Selfdestruct opcode in bytecode", "CRITICAL", raw_score=40))
 
         # 1d. Check for dangerous function selectors in bytecode
         for selector, info in RUG_PULL_SELECTORS.items():
             if info and selector[2:] in bytecode_lower:
+                raw = 15 if info["severity"] == "HIGH" else 25
                 findings.append({
                     "type": f"OWNER_POWER_{info['name'].upper()}",
-                    "severity": info["severity"],
-                    "detail": info["reason"],
+                    "severity": info["severity"], "detail": info["reason"],
+                    "evidenceSource": "on_chain_verified",
                 })
-                score += 15 if info["severity"] == "HIGH" else 25
+                evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED,
+                                              "OWNER_POWER_%s" % info["name"].upper(),
+                                              info["reason"], info["severity"], raw_score=raw))
 
         # 1e. Check if contract has owner() function
         has_owner = "8da5cb5b" in bytecode_lower
         if has_owner:
-            # Try to read the owner
             owner_result = await self._bc._rpc(chain, "eth_call", [
                 {"to": address, "data": "0x8da5cb5b"}, "latest"
             ])
             if owner_result and owner_result != "0x" + "0" * 64:
                 owner_addr = "0x" + owner_result[-40:]
-                # Check if owner is a multisig (safer) or EOA (riskier)
                 owner_code = await self._bc._rpc(chain, "eth_getCode", [owner_addr, "latest"])
                 if not owner_code or owner_code == "0x":
                     findings.append({
-                        "type": "EOA_OWNER",
-                        "severity": "MEDIUM",
+                        "type": "EOA_OWNER", "severity": "MEDIUM",
                         "detail": f"Owned by a single wallet ({owner_addr[:10]}…), not a multisig.",
+                        "evidenceSource": "on_chain_verified",
                     })
-                    score += 10
+                    evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "EOA_OWNER",
+                                                  "Single wallet owner", "MEDIUM", raw_score=10))
                 else:
                     findings.append({
-                        "type": "CONTRACT_OWNER",
-                        "severity": "LOW",
+                        "type": "CONTRACT_OWNER", "severity": "LOW",
                         "detail": f"Owned by a contract ({owner_addr[:10]}…), likely a multisig or timelock.",
+                        "evidenceSource": "on_chain_verified",
                     })
+                    evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "CONTRACT_OWNER",
+                                                  "Contract owner (multisig)", "LOW", raw_score=5, is_positive=True))
 
         # 1f. Check if ownership is renounced
         renounced = "715018a6" in bytecode_lower
         if renounced and not has_owner:
             findings.append({
-                "type": "OWNERSHIP_RENOUNCED",
-                "severity": "LOW",
+                "type": "OWNERSHIP_RENOUNCED", "severity": "LOW",
                 "detail": "Ownership appears renounced. Safer but not guaranteed.",
+                "evidenceSource": "on_chain_verified",
             })
-            score = max(0, score - 10)
+            evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "OWNERSHIP_RENOUNCED",
+                                          "Renounced ownership", "LOW", raw_score=10, is_positive=True))
 
-        score = min(score, 100)
-        level = self._score_to_level(score)
-        report = ThreatReport(address, "contract", score, level, findings)
+        # ── Confidence-based scoring ──────────────────────────
+        if evidence_list:
+            cs = self._confidence.calculate(evidence_list)
+            score = cs.overall_score
+            level = cs.risk_level
+            conf = cs.confidence_value
+            sources = cs.evidence_sources
+        else:
+            score = 0
+            level = "LOW"
+            conf = 0.5
+            sources = []
+
+        report = ThreatReport(address, "contract", score, level, findings,
+                              confidence=conf, evidence_sources=sources)
         self._set_cached(cache_key, report)
         return report
 
@@ -836,27 +886,44 @@ class ThreatIntel:
             return cached
 
         findings = []
-        score = 0
+        evidence_list = []
         addr_lower = address.lower()
 
-        # Known malicious
+        # ── FAST PATH: Rules engine check ──────────────────────
+        if self._rules:
+            trust, info = self._rules.classify(address, chain)
+            if trust == Trust.TRUSTED:
+                findings.append({
+                    "type": "VERIFIED_PROTOCOL", "severity": "LOW",
+                    "detail": "Verified protocol: %s (%s)" % (info.name, info.category.value),
+                    "evidenceSource": "protocol_registry",
+                })
+                report = ThreatReport(address, "address", 0, "LOW", findings,
+                                      confidence=0.95, evidence_sources=["protocol_registry"])
+                self._set_cached(cache_key, report)
+                return report
+
+        # Known malicious (legacy dict)
         if addr_lower in KNOWN_MALICIOUS:
             findings.append({
-                "type": "KNOWN_MALICIOUS",
-                "severity": "CRITICAL",
+                "type": "KNOWN_MALICIOUS", "severity": "CRITICAL",
                 "detail": KNOWN_MALICIOUS[addr_lower],
+                "evidenceSource": "scam_db_confirmed",
             })
-            score = 95
+            evidence_list.append(Evidence(EvidenceSource.SCAM_DB_CONFIRMED, "KNOWN_MALICIOUS",
+                                          KNOWN_MALICIOUS[addr_lower], "CRITICAL", raw_score=95))
 
         # Check scam database
         scam_match = self.scam_db.is_known_scam(address)
         if scam_match:
+            src = EvidenceSource.SCAM_DB_CONFIRMED if scam_match['source'] == 'seed' else EvidenceSource.SCAM_DB_COMMUNITY
             findings.append({
-                "type": "KNOWN_SCAM_ADDRESS",
-                "severity": "CRITICAL",
+                "type": "KNOWN_SCAM_ADDRESS", "severity": "CRITICAL",
                 "detail": f"SCAM DATABASE MATCH: {scam_match['reason']} (category: {scam_match['category']}, source: {scam_match['source']})",
+                "evidenceSource": src.value,
             })
-            score = max(score, 95)
+            evidence_list.append(Evidence(src, "KNOWN_SCAM_ADDRESS",
+                                          scam_match['reason'], "CRITICAL", raw_score=95))
 
         # Check if it's a contract or EOA
         code = await self._bc._rpc(chain, "eth_getCode", [address, "latest"])
@@ -865,26 +932,33 @@ class ThreatIntel:
         if is_contract:
             contract_report = await self.analyze_contract(address, chain)
             findings.extend(contract_report.findings)
-            score = max(score, contract_report.risk_score)
+            # Inherit contract evidence
+            if contract_report.risk_score > 0:
+                evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "CONTRACT_RISK",
+                                              "Contract analysis score: %d" % contract_report.risk_score,
+                                              contract_report.risk_level,
+                                              raw_score=contract_report.risk_score))
 
-        # Check transaction count (nonce) — brand new addresses are riskier
+        # Check transaction count (nonce)
         nonce = await self._bc._rpc(chain, "eth_getTransactionCount", [address, "latest"])
         if nonce:
             tx_count = int(nonce, 16)
             if tx_count == 0:
                 findings.append({
-                    "type": "ZERO_NONCE",
-                    "severity": "MEDIUM",
+                    "type": "ZERO_NONCE", "severity": "MEDIUM",
                     "detail": "This address has never sent a transaction. May be a dust/poison address.",
+                    "evidenceSource": "heuristic",
                 })
-                score += 15
+                evidence_list.append(Evidence(EvidenceSource.HEURISTIC, "ZERO_NONCE",
+                                              "Zero transaction count", "MEDIUM", raw_score=15))
             elif tx_count < 3:
                 findings.append({
-                    "type": "NEW_ADDRESS",
-                    "severity": "LOW",
+                    "type": "NEW_ADDRESS", "severity": "LOW",
                     "detail": f"Very new address ({tx_count} transactions). Exercise caution.",
+                    "evidenceSource": "heuristic",
                 })
-                score += 5
+                evidence_list.append(Evidence(EvidenceSource.HEURISTIC, "NEW_ADDRESS",
+                                              "Very few transactions", "LOW", raw_score=5))
 
         # Check balance — drainer contracts often have 0 ETH
         if is_contract:
@@ -893,25 +967,51 @@ class ThreatIntel:
                 eth_balance = int(balance, 16) / 1e18
                 if eth_balance < 0.001:
                     findings.append({
-                        "type": "EMPTY_CONTRACT",
-                        "severity": "LOW",
+                        "type": "EMPTY_CONTRACT", "severity": "LOW",
                         "detail": f"Contract has near-zero balance ({eth_balance:.6f} ETH). Common for drainer contracts.",
+                        "evidenceSource": "on_chain_verified",
                     })
-                    score += 5
+                    evidence_list.append(Evidence(EvidenceSource.ON_CHAIN_VERIFIED, "EMPTY_CONTRACT",
+                                                  "Near-zero ETH balance", "LOW", raw_score=5))
 
-        # Address poisoning detection (lots of zeros or address mimicry)
-        zero_count = addr_lower[2:].count("0")
-        if zero_count > 20:
-            findings.append({
-                "type": "POSSIBLE_POISONING",
-                "severity": "HIGH",
-                "detail": f"Address has {zero_count} zeros — likely an address poisoning attempt.",
-            })
-            score += 30
+        # Address poisoning detection — use rules engine if available
+        if self._rules:
+            poison_verdict = self._rules.is_address_poisoning(address)
+            if poison_verdict.verdict == Verdict.THREAT:
+                findings.append({
+                    "type": "POSSIBLE_POISONING", "severity": "HIGH",
+                    "detail": poison_verdict.reason,
+                    "evidenceSource": "rules_engine",
+                })
+                evidence_list.append(Evidence(EvidenceSource.RULES_ENGINE, "POSSIBLE_POISONING",
+                                              poison_verdict.reason, "HIGH", raw_score=30))
+        else:
+            # Fallback: basic zero-count check
+            zero_count = addr_lower[2:].count("0")
+            if zero_count > 20:
+                findings.append({
+                    "type": "POSSIBLE_POISONING", "severity": "HIGH",
+                    "detail": f"Address has {zero_count} zeros — likely an address poisoning attempt.",
+                    "evidenceSource": "heuristic",
+                })
+                evidence_list.append(Evidence(EvidenceSource.HEURISTIC, "POSSIBLE_POISONING",
+                                              "High zero count in address", "HIGH", raw_score=30))
 
-        score = min(score, 100)
-        level = self._score_to_level(score)
-        report = ThreatReport(address, "address", score, level, findings)
+        # ── Confidence-based scoring ──────────────────────────
+        if evidence_list:
+            cs = self._confidence.calculate(evidence_list)
+            score = cs.overall_score
+            level = cs.risk_level
+            conf = cs.confidence_value
+            sources = cs.evidence_sources
+        else:
+            score = 0
+            level = self._score_to_level(0)
+            conf = 0.5
+            sources = []
+
+        report = ThreatReport(address, "address", score, level, findings,
+                              confidence=conf, evidence_sources=sources)
         self._set_cached(cache_key, report)
         return report
 

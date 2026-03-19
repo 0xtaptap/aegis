@@ -37,6 +37,8 @@ from services.tx_logger import tx_logger
 from services.bridge import BridgeService
 from services.memory_store import MemoryStore
 from services.event_triggers import TriggerEngine
+from services.rules_engine import RulesEngine
+from services.alert_manager import AlertManager
 from agent.core import init_agent, run_agent
 from agent.goal_engine import GoalEngine
 from agent.perception_loop import PerceptionLoop
@@ -46,7 +48,7 @@ from agent.tools import ALL_TOOLS
 # ── Rate limiter ─────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 
-# ── Globals ──────────────────────────────────────────────────
+# ── Globals ────────────────────────────────────────────────────
 blockchain: BlockchainService = None
 threat_intel: ThreatIntel = None
 safe_sdk: SafeSDK = None
@@ -58,6 +60,8 @@ goal_engine: GoalEngine = None
 perception_loop: PerceptionLoop = None
 acp_catalog: ACPSkillCatalog = None
 trigger_engine: TriggerEngine = None
+rules_engine: RulesEngine = None
+alert_manager: AlertManager = None
 ws_clients: list[WebSocket] = []
 
 # ── Address validation helper ────────────────────────────────
@@ -75,12 +79,21 @@ def validate_address(address: str) -> str | None:
 async def lifespan(app: FastAPI):
     global blockchain, threat_intel, safe_sdk, monitor, gas_optimizer, bridge_service
     global memory_store, goal_engine, perception_loop, acp_catalog, trigger_engine
+    global rules_engine, alert_manager
 
     key = os.getenv("ALCHEMY_API_KEY", "")
     blockchain = BlockchainService(key)
-    threat_intel = ThreatIntel(blockchain)
+
+    # Intelligence Layer (v2)
+    rules_engine = RulesEngine(scam_db=None)  # ScamDB is loaded inside ThreatIntel
+    alert_manager = AlertManager()
+
+    threat_intel = ThreatIntel(blockchain, rules_engine=rules_engine)
+    # Wire scam_db into rules engine now that ThreatIntel has initialized it
+    rules_engine._scam_db = threat_intel.scam_db
+
     safe_sdk = SafeSDK(blockchain)
-    monitor = WalletMonitor(blockchain, threat_intel)
+    monitor = WalletMonitor(blockchain, threat_intel, alert_manager=alert_manager)
     gas_optimizer = GasOptimizer(blockchain)
     bridge_service = BridgeService()
 
@@ -92,13 +105,15 @@ async def lifespan(app: FastAPI):
     await monitor.start()
     init_agent(blockchain, threat_intel, safe_sdk)
 
-    # Perception loop (autonomous brain)
+    # Perception loop (autonomous brain) — now with triage architecture
     perception_loop = PerceptionLoop(
         goal_engine=goal_engine,
         blockchain_service=blockchain,
         threat_intel=threat_intel,
         memory_store=memory_store,
         monitor=monitor,
+        alert_manager=alert_manager,
+        rules_engine=rules_engine,
         interval=int(os.getenv("PERCEPTION_INTERVAL", "120")),
     )
 
@@ -114,15 +129,18 @@ async def lifespan(app: FastAPI):
     # Phase 3: Event Triggers
     trigger_engine = TriggerEngine(perception_loop)
 
-    print(f"\n🛡️  Crypto Guardian is live at http://localhost:{os.getenv('PORT', '3000')}")
+    re_stats = rules_engine.get_stats()
+    print(f"\n\U0001f6e1\ufe0f  Crypto Guardian is live at http://localhost:{os.getenv('PORT', '3000')}")
     print(f"   Chains: {', '.join(CHAINS.keys())}")
     print(f"   Mode: AUTONOMOUS")
     print(f"   Agent: LangGraph + GOAT session keys")
-    print(f"   Perception: Loop running (every {os.getenv('PERCEPTION_INTERVAL', '120')}s)")
+    print(f"   Perception: Triage loop (every {os.getenv('PERCEPTION_INTERVAL', '120')}s)")
     print(f"   Goals: {goal_engine.get_stats()['active']} active")
     print(f"   ACP: {len(ALL_TOOLS)} skills listed for agent-to-agent commerce")
     print(f"   Memory: Persistent (SQLite)")
-    print(f"   Threat Engine: Own (6 modules + scam DB)\n")
+    print(f"   Intelligence: v2 (rules engine + confidence scoring + alert manager)")
+    print(f"   Protocol Registry: {re_stats['totalProtocols']} verified across {len(re_stats['supportedChains'])} chains")
+    print(f"   Alert Manager: dedup {alert_manager.DEDUP_WINDOW_SECONDS//60}min, cooldown {alert_manager.COOLDOWN_SECONDS//60}min\n")
 
     yield
 
@@ -653,6 +671,55 @@ async def trigger_perception(request: Request):
         perception_loop.trigger_event(body.get("type", "MANUAL"), body.get("data", {}))
         return {"status": "triggered"}
     return JSONResponse(status_code=503, content={"error": "Perception loop not running"})
+
+
+# ── Intelligence Layer (v2) API ──────────────────────────────
+@app.get("/api/intelligence/stats")
+async def intelligence_stats():
+    """Get intelligence layer stats: rules engine, alert manager, confidence."""
+    result = {}
+    if rules_engine:
+        result["rulesEngine"] = rules_engine.get_stats()
+    if alert_manager:
+        result["alertManager"] = alert_manager.get_stats()
+    if perception_loop:
+        status = perception_loop.get_status()
+        result["perception"] = {
+            "llmCallsTotal": status.get("llmCallsTotal", 0),
+            "llmCallsSkipped": status.get("llmCallsSkipped", 0),
+            "llmSavingsPercent": status.get("llmSavingsPercent", 0),
+        }
+    return result
+
+@app.get("/api/intelligence/protocols/{chain}")
+async def intelligence_protocols(chain: str):
+    """Get verified protocols for a specific chain."""
+    if not rules_engine:
+        return {"protocols": {}}
+    all_protocols = rules_engine.get_all_protocols()
+    chain_protocols = all_protocols["chains"].get(chain, {})
+    return {"chain": chain, "count": len(chain_protocols), "protocols": chain_protocols}
+
+@app.get("/api/intelligence/alerts")
+async def intelligence_alerts(wallet: str = None, limit: int = 20, action: str = None):
+    """Get alert history from the AlertManager."""
+    if not alert_manager:
+        return {"alerts": []}
+    alerts = alert_manager.get_recent_alerts(wallet=wallet, limit=limit, action_filter=action)
+    return {"alerts": alerts, "stats": alert_manager.get_stats()}
+
+@app.get("/api/intelligence/classify/{address}/{chain}")
+async def intelligence_classify(address: str, chain: str = "ethereum"):
+    """Classify an address using the rules engine."""
+    if not rules_engine:
+        return {"error": "Rules engine not initialized"}
+    trust, info = rules_engine.classify(address, chain)
+    return {
+        "address": address,
+        "chain": chain,
+        "trust": trust.value,
+        "protocol": {"name": info.name, "category": info.category.value, "trustLevel": info.trust_level} if info else None,
+    }
 
 
 # ── ACP (Agent Commerce Protocol) ────────────────────────────

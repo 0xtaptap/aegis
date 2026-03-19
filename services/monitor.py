@@ -23,11 +23,13 @@ class AlertType(str, Enum):
 
 
 class WalletMonitor:
-    """Background wallet monitor with SQLite-backed alert storage."""
+    """Background wallet monitor with SQLite-backed alert storage.
+    Now integrates with AlertManager for dedup, cooldown, and triage."""
 
-    def __init__(self, blockchain_service, threat_intel=None, db_path=None):
+    def __init__(self, blockchain_service, threat_intel=None, alert_manager=None, db_path=None):
         self._bc = blockchain_service
         self._threat = threat_intel
+        self._alert_mgr = alert_manager  # AlertManager for intelligent alert filtering
         self._running = False
         self._task = None
         self._ws_clients = []  # WebSocket clients for push alerts
@@ -143,7 +145,26 @@ class WalletMonitor:
             print("[Monitor] WS client unregistered (%d remaining)" % len(self._ws_clients))
 
     async def _save_alert(self, wallet, chain, alert_type, severity, detail, tx_hash=""):
-        """Save an alert to SQLite + push via WS + webhook."""
+        """Save an alert — now runs through AlertManager triage first."""
+
+        # ── AlertManager gate ──────────────────────────────────
+        if self._alert_mgr:
+            from services.alert_manager import AlertAction
+            processed = self._alert_mgr.triage(
+                wallet=wallet, chain=chain,
+                alert_type=str(alert_type), severity=severity,
+                detail=detail, confidence=0.70,  # Monitor findings have moderate confidence
+            )
+            action = processed.decision.action
+
+            # DISMISS or WATCH → don't push to user, just log
+            if action == AlertAction.DISMISS:
+                return  # Silently drop
+            if action == AlertAction.WATCH:
+                print("[Monitor] Alert watched (not pushed): %s for %s" % (alert_type, wallet[:12]))
+                return
+            # ALERT_USER or BLOCK → continue to save + push
+
         alert_data = {
             "wallet": wallet, "chain": chain, "alertType": str(alert_type),
             "severity": severity, "detail": detail, "txHash": tx_hash,
@@ -161,9 +182,7 @@ class WalletMonitor:
         except Exception:
             pass
 
-        # ADDED FOR FINAL VERSION — real-time WS push
         await self._push_alert_ws(alert_data)
-        # ADDED FOR FINAL VERSION — webhook POST
         await self._try_webhook(alert_data)
 
     async def _push_alert_ws(self, alert_data):
